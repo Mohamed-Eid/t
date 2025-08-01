@@ -1,0 +1,17 @@
+version: "1"
+
+vars:
+  BIN: "bin/app"
+  SRC: "main.go"
+
+tasks:
+  build:
+    desc: "Test Main Command"
+    deps: [clean]
+    cmds:
+      - echo {{.BIN}} {{.SRC}}
+
+  clean:
+    desc: "Test First Command"
+    cmds:
+      - echo "done first stip"
