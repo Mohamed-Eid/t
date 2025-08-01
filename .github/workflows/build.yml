@@ -3,6 +3,7 @@ name: Build Multi-Platform
 on:
   push:
     branches: [main, develop]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
   release:
@@ -98,7 +99,7 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
