@@ -1,17 +1,19 @@
 version: "1"
 
 vars:
-  BIN: "bin/app"
-  SRC: "main.go"
+  BIN: "t"
+  SRC: "."
 
 tasks:
   build:
-    desc: "Test Main Command"
+    desc: "Build the application"
     deps: [clean]
     cmds:
-      - echo {{.BIN}} {{.SRC}}
+      - "mkdir -p bin"
+      - "go build -ldflags='-s -w' -o bin/{{.BIN}} {{.SRC}}"
 
   clean:
-    desc: "Test First Command"
+    desc: "Clean build artifacts"
     cmds:
-      - echo "done first stip"
+      - "rm -rf bin/"
+      - "rm -f t t.exe"
