@@ -18,8 +18,14 @@ Extract the archive and move the binary to your PATH:
 #### Windows
 
 ```powershell
-# Extract the zip file and move to a directory in your PATH
-Move-Item t.exe C:\Windows\System32\
+# Extract the zip file to a directory
+Expand-Archive -Path "t-windows-amd64.zip" -DestinationPath "C:\tools\t"
+
+# Add to PATH (run as Administrator)
+$env:PATH += ";C:\tools\t"
+
+# Or copy to System32 (not recommended for production)
+# Copy-Item "C:\tools\t\t.exe" "C:\Windows\System32\"
 ```
 
 #### Linux/macOS
@@ -27,7 +33,13 @@ Move-Item t.exe C:\Windows\System32\
 ```bash
 # Extract and install
 tar -xzf t-*.tar.gz
+
+# Make executable and move to PATH
+chmod +x t
 sudo mv t /usr/local/bin/
+
+# Verify installation
+t --help || echo "Ready to use! Create a tasks.yaml file first."
 ```
 
 ### Option 2: Build from Source
@@ -54,26 +66,43 @@ t <task-name>
 
 ### Configuration
 
-Create a `tasks.yaml` file in your project root:
+Create a `tasks.yaml` file in your project root with the correct format:
 
 ```yaml
+version: "1"
+
+vars:
+  BIN: "bin/app"
+  SRC: "main.go"
+
 tasks:
   build:
-    description: "Build the application"
+    desc: "Build the application"
     deps: [clean]
-    command: "go build -o app ."
+    cmds:
+      - "go build -o {{.BIN}} {{.SRC}}"
 
   test:
-    description: "Run tests"
-    command: "go test ./..."
+    desc: "Run tests"
+    cmds:
+      - "go test ./..."
 
   clean:
-    description: "Clean build artifacts"
-    command: "rm -f app"
+    desc: "Clean build artifacts"
+    cmds:
+      - "rm -f {{.BIN}}"
+      - "rm -rf bin/"
 
   dev:
-    description: "Run in development mode"
-    command: "go run ."
+    desc: "Run in development mode"
+    cmds:
+      - "go run {{.SRC}}"
+
+  install:
+    desc: "Install dependencies"
+    cmds:
+      - "go mod download"
+      - "go mod tidy"
 ```
 
 ### Example Commands
@@ -90,7 +119,47 @@ t clean
 
 # Start development server
 t dev
+
+# Install dependencies
+t install
 ```
+
+## 🔧 Configuration Format
+
+- **`version`**: Configuration version (currently "1")
+- **`vars`**: Variables that can be used in commands with `{{.VARIABLE_NAME}}`
+- **`tasks`**: Available tasks with the following properties:
+  - **`desc`**: Task description
+  - **`deps`**: List of dependencies (tasks to run first)
+  - **`cmds`**: List of commands to execute
+
+## 🚨 Troubleshooting
+
+### Error: "open tasks.yaml: The system cannot find the file specified"
+
+This error occurs when you run `t` in a directory without a `tasks.yaml` file.
+
+**Solutions:**
+
+1. **Create a `tasks.yaml` file** in your project root using the format above
+2. **Run `t` from the correct directory** where `tasks.yaml` exists
+3. **Check if the file exists**: `ls tasks.yaml` (Linux/macOS) or `dir tasks.yaml` (Windows)
+
+### Quick Start Template
+
+Create this basic `tasks.yaml` in your project:
+
+```yaml
+version: "1"
+
+tasks:
+  hello:
+    desc: "Hello world task"
+    cmds:
+      - "echo Hello from t task runner!"
+```
+
+Then run: `t hello`
 
 ## 🔧 Features
 
