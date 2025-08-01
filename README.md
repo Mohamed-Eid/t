@@ -1,6 +1,6 @@
 # t
 
-A simple and efficient task runner for Go projects, similar to Make but with YAML configuration.
+A simple and efficient task runner for your projects, similar to Make but with YAML configuration.
 
 ## 🚀 Installation
 
