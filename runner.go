@@ -67,6 +67,8 @@ func (r *Runner) RunTask(taskName string) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("command failed: %s", cmdStr)
 		}
+
+		fmt.Printf("✅ Done\n")
 	}
 
 	r.Ran[taskName] = true
