@@ -1,0 +1,125 @@
+name: Build Multi-Platform
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            binary_suffix: ""
+            artifact_name: "t-linux-amd64"
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            binary_suffix: ".exe"
+            artifact_name: "t-windows-amd64"
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            binary_suffix: ""
+            artifact_name: "t-darwin-amd64"
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            binary_suffix: ""
+            artifact_name: "t-darwin-arm64"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.23.2"
+          cache: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -ldflags="-s -w" -o t${{ matrix.binary_suffix }} .
+
+      - name: Create artifact directory
+        run: mkdir -p artifacts
+
+      - name: Copy binary to artifacts (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cp t${{ matrix.binary_suffix }} artifacts/
+          cp README.md artifacts/ 2>/dev/null || true
+          cp tasks.yaml artifacts/ 2>/dev/null || true
+
+      - name: Copy binary to artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Copy-Item "t${{ matrix.binary_suffix }}" "artifacts/"
+          if (Test-Path "README.md") { Copy-Item "README.md" "artifacts/" }
+          if (Test-Path "tasks.yaml") { Copy-Item "tasks.yaml" "artifacts/" }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create release archives
+        run: |
+          for dir in t-*; do
+            cd "$dir"
+            if [[ "$dir" == *"windows"* ]]; then
+              zip -r "../${dir}.zip" .
+            else
+              tar -czf "../${dir}.tar.gz" .
+            fi
+            cd ..
+          done
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            *.zip
+            *.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
