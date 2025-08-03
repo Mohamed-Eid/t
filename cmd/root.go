@@ -68,7 +68,8 @@ func Execute() {
 
 func init() {
 	// Add subcommands
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(parallelCmd)
 }

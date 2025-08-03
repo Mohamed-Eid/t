@@ -6,11 +6,14 @@ A lightweight and efficient task runner for your projects, similar to Make but w
 
 - 🚀 **Simple YAML configuration** - Easy to read and write
 - 🔗 **Task dependencies** - Automatic dependency resolution
+- ⚡ **Parallel execution** - Dependencies run concurrently for faster builds
 - 🔄 **Variable substitution** - Reusable configuration with variables
 - 🌍 **Cross-platform** - Works on Windows, Linux, and macOS
-- ⚡ **Fast execution** - Built with Go for performance
+- 🏃 **Fast execution** - Built with Go and Goroutines for maximum performance
 - 🛠️ **Built-in commands** - Project initialization and task listing
 - 🔒 **No conflicts** - Tool commands use `:` prefix to avoid task name conflicts
+- ⏱️ **Timing information** - Track execution time and performance
+- 🧵 **Thread-safe** - Concurrent execution without race conditions
 
 ## 🚀 Installation
 
@@ -89,6 +92,19 @@ t :list
 t build
 t test
 t clean
+
+# Run with timing information to see parallel execution
+t :parallel build
+
+# Example output:
+# ⏱️  Starting task 'build' at 15:04:05.123
+# 🔧 Running task: format
+# 🔧 Running task: vet
+# 🔧 Running task: deps
+# ✅ done (all three tasks run in parallel!)
+# 🔧 Running task: build
+# ✅ done
+# 🎉 Task 'build' completed successfully in 2.1s!
 ```
 
 ## 🔧 Usage
@@ -99,6 +115,7 @@ t clean
 t :init         # Initialize tasks.yaml with defaults
 t :list         # List all available tasks
 t :ls           # Alias for :list
+t :parallel     # Run task with timing information
 t :version      # Show version information
 t --help        # Show help information
 ```
@@ -109,11 +126,14 @@ t --help        # Show help information
 t <task-name>   # Run any task defined in tasks.yaml
 t build         # Example: run build task
 t test          # Example: run test task
+
+# Performance commands
+t :parallel <task-name>  # Run task with detailed timing information
 ```
 
 ### Configuration
 
-The `tasks.yaml` file defines your project tasks:
+The `tasks.yaml` file defines your project tasks with support for parallel execution:
 
 ```yaml
 version: "1"
@@ -124,50 +144,51 @@ vars:
   VERSION: "1.0.0"
 
 tasks:
+  # Independent tasks that can run in parallel
+  format:
+    desc: "Format code"
+    cmds:
+      - "go fmt ./..."
+
+  vet:
+    desc: "Vet code"
+    cmds:
+      - "go vet ./..."
+
+  deps:
+    desc: "Download dependencies"
+    cmds:
+      - "go mod download"
+
+  # Tasks with dependencies - these will run in parallel when possible
+  test:
+    desc: "Run tests"
+    deps: [format, vet] # format and vet run in parallel
+    cmds:
+      - "go test ./..."
+
+  lint:
+    desc: "Run linter"
+    deps: [format, vet] # format and vet run in parallel
+    cmds:
+      - "echo Linting completed"
+
   build:
     desc: "Build the application"
-    deps: [clean]
+    deps: [test, deps] # test and deps can run in parallel
     cmds:
       - "New-Item -ItemType Directory -Force -Path {{.BUILD_DIR}}"
       - 'go build -ldflags="-s -w -X main.Version={{.VERSION}}" -o {{.BUILD_DIR}}/{{.APP_NAME}}.exe .'
 
-  test:
-    desc: "Run tests"
-    cmds:
-      - "go test ./..."
-
-  clean:
-    desc: "Clean build artifacts"
-    cmds:
-      - "go clean"
-      - "Remove-Item -Recurse -Force {{.BUILD_DIR}} -ErrorAction SilentlyContinue"
-
-  dev:
-    desc: "Run in development mode"
-    cmds:
-      - "go run ."
-
-  install:
-    desc: "Install dependencies"
-    cmds:
-      - "go mod download"
-      - "go mod tidy"
-
-  lint:
-    desc: "Run linter and formatter"
-    cmds:
-      - "go fmt ./..."
-      - "go vet ./..."
-
   release:
     desc: "Build optimized release binary"
-    deps: [test, lint]
+    deps: [test, lint] # test and lint run in parallel
     cmds:
       - "New-Item -ItemType Directory -Force -Path dist"
       - 'go build -ldflags="-s -w -X main.Version={{.VERSION}}" -o dist/{{.APP_NAME}}.exe .'
 ```
 
-## � Configuration Reference
+## 🔧 Configuration Reference
 
 ### Structure
 
@@ -175,7 +196,7 @@ tasks:
 - **`vars`**: Variables that can be used in commands with `{{.VARIABLE_NAME}}`
 - **`tasks`**: Available tasks with the following properties:
   - **`desc`**: Task description (shown in `:list`)
-  - **`deps`**: List of dependencies (tasks to run first)
+  - **`deps`**: List of dependencies (tasks to run first) - **runs in parallel when possible**
   - **`cmds`**: List of commands to execute
 
 ### Variables
@@ -196,14 +217,82 @@ tasks:
 
 ### Dependencies
 
-Tasks can depend on other tasks:
+Tasks can depend on other tasks, and **t automatically runs dependencies in parallel** when possible:
 
 ```yaml
 tasks:
   release:
-    deps: [test, lint, build] # Runs test, lint, then build before release
+    deps: [test, lint, build] # Runs test, lint, and build in parallel when possible
     cmds:
       - "echo Ready for release!"
+```
+
+## ⚡ Parallel Execution
+
+**t** automatically detects which tasks can run in parallel and executes them concurrently using Goroutines:
+
+### How It Works
+
+1. **Dependency Analysis**: t analyzes the dependency graph to find tasks that can run simultaneously
+2. **Concurrent Execution**: Independent tasks run in parallel using Goroutines
+3. **Thread-Safe**: Uses `sync.RWMutex` to prevent race conditions
+4. **Optimal Performance**: Reduces total execution time significantly
+
+### Example
+
+```yaml
+tasks:
+  # These three tasks are independent and will run in parallel
+  format:
+    desc: "Format code"
+    cmds: ["go fmt ./..."]
+
+  vet:
+    desc: "Vet code"
+    cmds: ["go vet ./..."]
+
+  deps:
+    desc: "Download deps"
+    cmds: ["go mod download"]
+
+  # This task depends on all three above - they run in parallel first
+  build:
+    desc: "Build app"
+    deps: [format, vet, deps] # All three run concurrently!
+    cmds: ["go build ."]
+```
+
+### Performance Comparison
+
+**Without Parallel Execution:**
+
+```
+format (2s) → vet (2s) → deps (1s) → build (1s) = 6 seconds total
+```
+
+**With Parallel Execution:**
+
+```
+format (2s) ┐
+vet (2s)    ├─→ build (1s) = 3 seconds total
+deps (1s)   ┘
+```
+
+### Monitoring Performance
+
+Use the `:parallel` command to see timing information:
+
+```bash
+# Run with timing information
+t :parallel build
+
+# Example output:
+# ⏱️  Starting task 'build' at 15:04:05.123
+# 🔧 Running task: format
+# 🔧 Running task: vet
+# 🔧 Running task: deps
+# ... (tasks run concurrently)
+# 🎉 Task 'build' completed successfully in 3.2s!
 ```
 
 ## 🚨 Troubleshooting
@@ -260,17 +349,35 @@ vars:
   VERSION: "1.0.0"
 
 tasks:
-  build:
-    desc: "Build the Go application"
-    deps: [test]
+  # Independent tasks - these will run in parallel
+  format:
+    desc: "Format Go code"
     cmds:
-      - 'go build -ldflags="-s -w -X main.Version={{.VERSION}}" -o {{.APP_NAME}} .'
+      - "go fmt ./..."
 
+  vet:
+    desc: "Vet Go code"
+    cmds:
+      - "go vet ./..."
+
+  deps:
+    desc: "Download dependencies"
+    cmds:
+      - "go mod download"
+      - "go mod tidy"
+
+  # Dependent tasks - dependencies run in parallel when possible
   test:
     desc: "Run Go tests"
+    deps: [format, vet] # format and vet run in parallel
     cmds:
       - "go test ./..."
-      - "go vet ./..."
+
+  build:
+    desc: "Build the Go application"
+    deps: [test, deps] # test and deps can run in parallel
+    cmds:
+      - 'go build -ldflags="-s -w -X main.Version={{.VERSION}}" -o {{.APP_NAME}} .'
 
   clean:
     desc: "Clean build artifacts"
@@ -278,11 +385,12 @@ tasks:
       - "go clean"
       - "Remove-Item -Force {{.APP_NAME}}.exe -ErrorAction SilentlyContinue"
 
-  run:
-    desc: "Run the application"
-    deps: [build]
+  release:
+    desc: "Create release build"
+    deps: [test, build] # test and build dependencies handled optimally
     cmds:
-      - "./{{.APP_NAME}}"
+      - "New-Item -ItemType Directory -Force -Path dist"
+      - 'go build -ldflags="-s -w -X main.Version={{.VERSION}}" -o dist/{{.APP_NAME}} .'
 ```
 
 ### Node.js Project
@@ -294,19 +402,39 @@ vars:
   NODE_ENV: "development"
 
 tasks:
+  # Independent setup tasks
   install:
     desc: "Install npm dependencies"
     cmds:
       - "npm install"
 
+  lint:
+    desc: "Lint code"
+    cmds:
+      - "npm run lint"
+
+  format:
+    desc: "Format code"
+    cmds:
+      - "npm run format"
+
+  # Quality checks that can run in parallel
+  quality:
+    desc: "Run quality checks"
+    deps: [lint, format] # lint and format run in parallel
+    cmds:
+      - "echo Quality checks completed"
+
+  # Build with optimized dependencies
   build:
     desc: "Build the project"
-    deps: [install]
+    deps: [install, quality] # install and quality can run in parallel
     cmds:
       - "npm run build"
 
   test:
     desc: "Run tests"
+    deps: [install]
     cmds:
       - "npm test"
 
@@ -316,12 +444,33 @@ tasks:
     cmds:
       - "npm run dev"
 
-  lint:
-    desc: "Lint code"
+  # Production build with all checks
+  production:
+    desc: "Production build"
+    deps: [test, build] # test and build run optimally
     cmds:
-      - "npm run lint"
-      - "npm run format"
+      - "npm run build:prod"
 ```
+
+build:
+desc: "Build the project"
+deps: [install]
+cmds: - "npm run build"
+
+test:
+desc: "Run tests"
+cmds: - "npm test"
+
+dev:
+desc: "Start development server"
+deps: [install]
+cmds: - "npm run dev"
+
+lint:
+desc: "Lint code"
+cmds: - "npm run lint" - "npm run format"
+
+````
 
 ### Docker Project
 
@@ -354,7 +503,7 @@ tasks:
     desc: "Clean Docker artifacts"
     cmds:
       - "docker image prune -f"
-```
+````
 
 ## 🤝 Contributing
 
@@ -385,65 +534,3 @@ If you encounter any issues or have suggestions:
 ---
 
 **Made with ❤️ by [Mohamed Eid](https://github.com/Mohamed-Eid)**
-
-## 🚨 Troubleshooting
-
-### Error: "open tasks.yaml: The system cannot find the file specified"
-
-This error occurs when you run `t` in a directory without a `tasks.yaml` file.
-
-**Solutions:**
-
-1. **Create a `tasks.yaml` file** in your project root using the format above
-2. **Run `t` from the correct directory** where `tasks.yaml` exists
-3. **Check if the file exists**: `ls tasks.yaml` (Linux/macOS) or `dir tasks.yaml` (Windows)
-
-### Quick Start Template
-
-Create this basic `tasks.yaml` in your project:
-
-```yaml
-version: "1"
-
-tasks:
-  hello:
-    desc: "Hello world task"
-    cmds:
-      - "echo Hello from t task runner!"
-```
-
-Then run: `t hello`
-
-## 🔧 Features
-
-- ✅ Simple YAML configuration
-- ✅ Cross-platform support (Windows, Linux, macOS)
-- ✅ Fast execution
-- ✅ Easy to use and configure
-- ✅ Lightweight alternative to Make
-
-## 📁 Project Structure
-
-```
-your-project/
-├── tasks.yaml          # Task configuration
-├── main.go
-├── go.mod
-└── other files...
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 🐛 Issues
-
-If you encounter any issues or have suggestions, please [open an issue](https://github.com/Mohamed-Eid/t/issues).
