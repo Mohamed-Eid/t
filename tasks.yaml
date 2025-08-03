@@ -3,17 +3,48 @@ version: "1"
 vars:
   BIN: "t"
   SRC: "."
+  VERSION: "1.0.0"
 
 tasks:
   build:
-    desc: "Build the application"
-    deps: [clean]
+    desc: "Build the application" 
     cmds:
-      - "mkdir -p bin"
-      - "go build -ldflags='-s -w' -o bin/{{.BIN}} {{.SRC}}"
+      - "New-Item -ItemType Directory -Force -Path bin"
+      - "go build -ldflags=\"-s -w -X t/cmd.Version={{.VERSION}}\" -o bin/{{.BIN}}.exe {{.SRC}}"
+
+  test:
+    desc: "Run tests"
+    cmds:
+      - "go test ./..."
 
   clean:
     desc: "Clean build artifacts"
     cmds:
-      - "rm -rf bin/"
-      - "rm -f t t.exe"
+      - "go clean"
+      - "Remove-Item -Recurse -Force bin -ErrorAction SilentlyContinue"
+      - "Remove-Item -Force t.exe -ErrorAction SilentlyContinue"
+      - "Remove-Item -Force t -ErrorAction SilentlyContinue"
+
+  dev:
+    desc: "Run in development mode"
+    cmds:
+      - "go run ."
+
+  install:
+    desc: "Install dependencies"
+    cmds:
+      - "go mod download"
+      - "go mod tidy"
+
+  lint:
+    desc: "Run linter and formatter"
+    cmds:
+      - "go fmt ./..."
+      - "go vet ./..."
+
+  release:
+    desc: "Build optimized release binary"
+    deps: [test, lint]
+    cmds:
+      - "New-Item -ItemType Directory -Force -Path dist"
+      - "go build -ldflags=\"-s -w -X t/cmd.Version={{.VERSION}}\" -o dist/{{.BIN}}.exe {{.SRC}}"
