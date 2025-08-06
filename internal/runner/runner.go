@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"text/template"
 
 	"gopkg.in/yaml.v3"
@@ -30,6 +31,7 @@ type Config struct {
 type Runner struct {
 	Config *Config
 	Ran    map[string]bool
+	mutex  sync.RWMutex
 }
 
 // LoadConfig loads the tasks.yaml configuration from the specified filename
@@ -71,26 +73,85 @@ func NewRunner(config *Config) *Runner {
 
 // RunTask executes a task and its dependencies
 func (r *Runner) RunTask(taskName string) error {
+	return r.runTaskWithSync(taskName)
+}
+
+// runTaskWithSync executes a task with proper synchronization
+func (r *Runner) runTaskWithSync(taskName string) error {
+	// Check if already ran (with read lock)
+	r.mutex.RLock()
 	if r.Ran[taskName] {
+		r.mutex.RUnlock()
 		return nil
 	}
+	r.mutex.RUnlock()
 
 	task, exists := r.Config.Tasks[taskName]
 	if !exists {
 		return fmt.Errorf("task %s not found", taskName)
 	}
 
-	// Run dependencies first
-	for _, dep := range task.Deps {
-		if err := r.RunTask(dep); err != nil {
+	// Run dependencies in parallel if possible
+	if len(task.Deps) > 0 {
+		if err := r.runDependenciesParallel(task.Deps); err != nil {
 			return err
 		}
 	}
 
+	// Check again if task was run by a dependency (with write lock)
+	r.mutex.Lock()
+	if r.Ran[taskName] {
+		r.mutex.Unlock()
+		return nil
+	}
+
 	fmt.Printf("🔧 Running task: %s\n", taskName)
 
-	// Run task commands
-	for _, rawCmd := range task.Cmds {
+	// Mark as running to prevent duplicate execution
+	r.Ran[taskName] = true
+	r.mutex.Unlock()
+
+	// Run task commands sequentially (commands within a task should be sequential)
+	return r.executeCommands(taskName, task.Cmds)
+}
+
+// runDependenciesParallel runs dependencies in parallel where possible
+func (r *Runner) runDependenciesParallel(deps []string) error {
+	if len(deps) == 1 {
+		// Single dependency - run directly
+		return r.runTaskWithSync(deps[0])
+	}
+
+	// Multiple dependencies - run in parallel
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(deps))
+
+	for _, dep := range deps {
+		wg.Add(1)
+		go func(depName string) {
+			defer wg.Done()
+			if err := r.runTaskWithSync(depName); err != nil {
+				errChan <- fmt.Errorf("dependency %s failed: %w", depName, err)
+			}
+		}(dep)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for any errors
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executeCommands runs the commands for a task sequentially
+func (r *Runner) executeCommands(taskName string, commands []string) error {
+	for _, rawCmd := range commands {
 		cmdStr, err := r.expandVars(rawCmd)
 		if err != nil {
 			return err
@@ -116,7 +177,6 @@ func (r *Runner) RunTask(taskName string) error {
 		fmt.Printf("✅ done\n")
 	}
 
-	r.Ran[taskName] = true
 	return nil
 }
 

@@ -6,16 +6,38 @@ vars:
   VERSION: "1.0.0"
 
 tasks:
+  # Independent tasks that can run in parallel
+  format:
+    desc: "Format code"
+    cmds:
+      - "go fmt ./..."
+      - "Start-Sleep -Seconds 2"  # Simulate work
+
+  vet:
+    desc: "Vet code"
+    cmds:
+      - "go vet ./..."
+      - "Start-Sleep -Seconds 2"  # Simulate work
+
+  deps:
+    desc: "Download dependencies"
+    cmds:
+      - "go mod download"
+      - "Start-Sleep -Seconds 1"  # Simulate work
+
+  # Tasks with dependencies that can run in parallel
+  test:
+    desc: "Run tests"
+    deps: [format, vet]  # These will run in parallel
+    cmds:
+      - "go test ./..."
+
   build:
-    desc: "Build the application" 
+    desc: "Build the application"
+    deps: [test, deps]  # test and deps can run in parallel
     cmds:
       - "New-Item -ItemType Directory -Force -Path bin"
       - "go build -ldflags=\"-s -w -X t/cmd.Version={{.VERSION}}\" -o bin/{{.BIN}}.exe {{.SRC}}"
-
-  test:
-    desc: "Run tests"
-    cmds:
-      - "go test ./..."
 
   clean:
     desc: "Clean build artifacts"
@@ -38,13 +60,20 @@ tasks:
 
   lint:
     desc: "Run linter and formatter"
+    deps: [format, vet]  # These will run in parallel
     cmds:
-      - "go fmt ./..."
-      - "go vet ./..."
+      - "echo Linting completed"
 
   release:
     desc: "Build optimized release binary"
-    deps: [test, lint]
+    deps: [test, lint]  # test and lint will run in parallel
     cmds:
       - "New-Item -ItemType Directory -Force -Path dist"
       - "go build -ldflags=\"-s -w -X t/cmd.Version={{.VERSION}}\" -o dist/{{.BIN}}.exe {{.SRC}}"
+
+  # Demo task to show parallel execution
+  parallel-demo:
+    desc: "Demonstrate parallel execution"
+    deps: [format, vet, deps]  # All three will run in parallel
+    cmds:
+      - "echo All parallel dependencies completed!"
