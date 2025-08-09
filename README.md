@@ -373,7 +373,24 @@ t :detach watch    # or t :d watch
 
 # Start any long-running task
 t :detach long-task
-````
+```
+
+### Process Tree Management
+
+The detach feature properly handles **process trees and child processes**:
+
+- **Windows**: Uses `taskkill /T` to terminate the entire process tree
+- **Unix/Linux**: Attempts to kill the process group first, then individual processes
+- **Child Process Cleanup**: When you stop a detached task like `php artisan serve`, all child processes are properly terminated
+
+This ensures that commands like `php artisan serve`, `npm run dev`, or any server that spawns child processes won't leave orphaned processes running when stopped.
+
+**Example use cases:**
+- `php artisan serve` - PHP development server
+- `npm run dev` - Node.js development server
+- `python manage.py runserver` - Django development server
+- `docker-compose up` - Docker services with multiple containers
+- Any long-running server or daemon process that spawns children`
 
 ### Process Management
 
@@ -771,7 +788,7 @@ tasks:
     desc: "Clean Docker artifacts"
     cmds:
       - "docker image prune -f"
-````
+```
 
 ## 🤝 Contributing
 

@@ -149,3 +149,26 @@ tasks:
     cmds:
       - "echo Deploying to $environment..."
       - 'powershell -Command "if (\"$confirm\" -eq \"yes\") { Write-Host \"Deployment started to $environment\" } else { Write-Host \"Deployment cancelled\"; exit 1 }"'
+
+  # Simulated PHP server scenario - tests child process cleanup
+  php-serve:
+    desc: "Simulate PHP artisan serve with child processes"
+    cmds:
+      - "echo Starting PHP development server..."
+      # Simulate a command that spawns child processes
+      - 'powershell -Command "Start-Process powershell -ArgumentList ''-Command'', ''while($true) { Write-Host \"Child process running...\"; Start-Sleep 2 }'' -WindowStyle Hidden; Write-Host \"Main server process starting...\"; 1..1000 | ForEach-Object { Write-Host \"Server handling request\" $_; Start-Sleep 3 }"'
+
+  # Python server simulation
+  python-serve:
+    desc: "Simulate Python development server"
+    cmds:
+      - "echo Starting Python development server..."
+      # On Windows, simulate a server that might spawn child processes
+      - 'Write-Host "Starting development server on port 8000..."; 1..1000 | ForEach-Object { Write-Host "[$(Get-Date)] Request $_ handled"; Start-Sleep 2 }'
+
+  # Simple test for process tree cleanup
+  server-test:
+    desc: "Test server with potential child processes"
+    cmds:
+      - "echo Starting test server..."
+      - 'Start-Process powershell -ArgumentList "-Command", "Write-Host Child process started; 1..100 | ForEach-Object { Write-Host Child process step $_; Start-Sleep 1 }" -WindowStyle Normal -PassThru | Out-Host; Write-Host Main process running; 1..100 | ForEach-Object { Write-Host Main process step $_; Start-Sleep 3 }'

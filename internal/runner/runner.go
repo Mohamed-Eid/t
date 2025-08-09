@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -414,8 +415,17 @@ func (r *Runner) RunTaskDetached(taskName string) (*DetachedProcess, error) {
 	cmd.Stdout = logFileHandle
 	cmd.Stderr = logFileHandle
 
-	// For cross-platform compatibility, we'll use basic process creation
-	// without special detachment flags
+	// Set up process group for proper cleanup of child processes
+	if runtime.GOOS == "windows" {
+		// On Windows, create a new process group
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+		}
+	} else {
+		// On Unix-like systems, we'll handle process groups differently
+		// For now, use basic process creation and handle cleanup in stop command
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -564,16 +574,30 @@ func (r *Runner) StopDetachedProcess(identifier string) error {
 		return fmt.Errorf("no detached process found with identifier: %s", identifier)
 	}
 
-	// Kill the process
+	// Kill the process and its children
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(targetPID))
+		// On Windows, use taskkill with /T flag to kill the process tree
+		cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(targetPID))
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to kill process %d: %w", targetPID, err)
+			return fmt.Errorf("failed to kill process tree %d: %w", targetPID, err)
 		}
 	} else {
-		cmd := exec.Command("kill", strconv.Itoa(targetPID))
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to kill process %d: %w", targetPID, err)
+		// On Unix-like systems, try to kill the process group first, then the process
+		// First try to kill the process group (negative PID)
+		killGroupCmd := exec.Command("kill", fmt.Sprintf("-%d", targetPID))
+		killGroupErr := killGroupCmd.Run()
+
+		// Also kill the main process directly
+		killCmd := exec.Command("kill", strconv.Itoa(targetPID))
+		killErr := killCmd.Run()
+
+		// If both fail, try a more aggressive approach
+		if killGroupErr != nil && killErr != nil {
+			// Try SIGKILL
+			killForceCmd := exec.Command("kill", "-9", strconv.Itoa(targetPID))
+			if err := killForceCmd.Run(); err != nil {
+				return fmt.Errorf("failed to kill process %d: %w", targetPID, err)
+			}
 		}
 	}
 
