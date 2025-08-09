@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"text/template"
 	"time"
 
@@ -415,13 +414,8 @@ func (r *Runner) RunTaskDetached(taskName string) (*DetachedProcess, error) {
 	cmd.Stdout = logFileHandle
 	cmd.Stderr = logFileHandle
 
-	// Set process attributes for detachment
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
-		}
-	}
-	// Note: On Unix systems, we'll let the process inherit the parent's process group
+	// For cross-platform compatibility, we'll use basic process creation
+	// without special detachment flags
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
