@@ -77,3 +77,24 @@ tasks:
     deps: [format, vet, deps]  # All three will run in parallel
     cmds:
       - "echo All parallel dependencies completed!"
+
+  # Development server simulation
+  serve:
+    desc: "Start development server (simulated)"
+    cmds:
+      - "echo Starting development server..."
+      - "echo Server running on http://localhost:8000"
+      - "powershell -Command \"for(;;) { Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Server is running...'); Start-Sleep -Seconds 5 }\""
+
+  # File watcher simulation  
+  watch:
+    desc: "Watch files for changes (simulated)"
+    cmds:
+      - "echo Starting file watcher..."
+      - "powershell -Command \"for(;;) { Write-Host ('[' + (Get-Date -Format 'HH:mm:ss') + '] Watching for file changes...'); Start-Sleep -Seconds 3 }\""
+
+  # Simple long running task for testing
+  long-task:
+    desc: "Simple long running task for testing detach"
+    cmds:
+      - 'powershell -Command "1..100 | ForEach-Object { Write-Host ''Processing item'' $_; Start-Sleep -Seconds 2 }"'

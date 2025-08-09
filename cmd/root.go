@@ -72,4 +72,8 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(parallelCmd)
+	rootCmd.AddCommand(detachCmd)
+	rootCmd.AddCommand(psCmd)
+	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(logsCmd)
 }

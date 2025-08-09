@@ -10,10 +10,11 @@ import (
 )
 
 var parallelCmd = &cobra.Command{
-	Use:   ":parallel <task-name>",
-	Short: "Run task with timing information to show parallel execution",
-	Long:  "Execute a task and show timing information to demonstrate parallel execution benefits.",
-	Args:  cobra.ExactArgs(1),
+	Use:     ":parallel <task-name>",
+	Aliases: []string{":time", ":timing", ":benchmark"},
+	Short:   "Run task with timing information to show parallel execution",
+	Long:    "Execute a task and show timing information to demonstrate parallel execution benefits.",
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		taskName := args[0]
 

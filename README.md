@@ -14,6 +14,8 @@ A lightweight and efficient task runner for your projects, similar to Make but w
 - 🔒 **No conflicts** - Tool commands use `:` prefix to avoid task name conflicts
 - ⏱️ **Timing information** - Track execution time and performance
 - 🧵 **Thread-safe** - Concurrent execution without race conditions
+- 🔄 **Detached execution** - Run long-living tasks in background
+- 📝 **Process management** - Track, monitor, and control background tasks
 
 ## 🚀 Installation
 
@@ -116,6 +118,20 @@ t :init         # Initialize tasks.yaml with defaults
 t :list         # List all available tasks
 t :ls           # Alias for :list
 t :parallel     # Run task with timing information
+t :time         # Alias for :parallel
+t :detach       # Run task in background (detached mode)
+t :d            # Alias for :detach (short form)
+t :bg           # Alias for :detach (background)
+t :ps           # List running detached tasks
+t :p            # Alias for :ps (short form)
+t :processes    # Alias for :ps (descriptive)
+t :stop         # Stop a running detached task
+t :kill         # Alias for :stop (forceful)
+t :s            # Alias for :stop (short form)
+t :logs         # View logs of a detached task
+t :log          # Alias for :logs (singular)
+t :l            # Alias for :logs (short form)
+t :tail         # Alias for :logs (tail-like)
 t :version      # Show version information
 t --help        # Show help information
 ```
@@ -129,6 +145,40 @@ t test          # Example: run test task
 
 # Performance commands
 t :parallel <task-name>  # Run task with detailed timing information
+t :time <task-name>      # Alias for :parallel (short form)
+```
+
+## 🔗 Quick Reference
+
+### Command Aliases
+
+| Full Command  | Short Aliases                    | Purpose                  |
+| ------------- | -------------------------------- | ------------------------ |
+| `t :detach`   | `:d`, `:bg`, `:background`       | Start task in background |
+| `t :ps`       | `:p`, `:processes`, `:status`    | List running tasks       |
+| `t :stop`     | `:s`, `:kill`, `:terminate`      | Stop running task        |
+| `t :logs`     | `:l`, `:log`, `:tail`            | View task logs           |
+| `t :parallel` | `:time`, `:timing`, `:benchmark` | Run with timing          |
+| `t :list`     | `:ls`                            | List available tasks     |
+
+### Common Workflows
+
+```bash
+# Quick development server workflow
+t :d serve                    # Start server in background
+t :p                          # Check if it's running
+t :l serve -f                 # Follow logs
+t :s serve                    # Stop when done
+
+# Build with performance monitoring
+t :time build                 # Build with timing info
+
+# Background task management
+t :bg watch                   # Start file watcher
+t :bg serve                   # Start dev server
+t :processes                  # List all running
+t :kill watch                 # Stop file watcher
+t :terminate serve            # Stop dev server
 ```
 
 ### Configuration
@@ -284,7 +334,7 @@ Use the `:parallel` command to see timing information:
 
 ```bash
 # Run with timing information
-t :parallel build
+t :parallel build    # or t :time build, t :timing build
 
 # Example output:
 # ⏱️  Starting task 'build' at 15:04:05.123
@@ -293,6 +343,114 @@ t :parallel build
 # 🔧 Running task: deps
 # ... (tasks run concurrently)
 # 🎉 Task 'build' completed successfully in 3.2s!
+```
+
+# 🎉 Task 'build' completed successfully in 3.2s!
+
+````
+
+## 🔄 Detached Execution
+
+**t** supports running long-living tasks in the background, perfect for development servers, file watchers, and other persistent processes.
+
+### Background Tasks
+
+Start any task in detached mode:
+
+```bash
+# Start a development server in the background
+t :detach serve    # or t :d serve, t :bg serve
+
+# Start a file watcher
+t :detach watch    # or t :d watch
+
+# Start any long-running task
+t :detach long-task
+````
+
+### Process Management
+
+Monitor and control background tasks:
+
+```bash
+# List all running detached tasks
+t :ps              # or t :p, t :processes, t :status
+
+# View live logs (follow mode)
+t :logs serve --follow    # or t :log serve -f, t :l serve -f, t :tail serve -f
+
+# View recent logs
+t :logs serve      # or t :log serve, t :l serve
+
+# Stop a task by name
+t :stop serve      # or t :kill serve, t :s serve
+
+# Stop a task by PID
+t :stop 12345      # or t :kill 12345
+```
+
+### Example Output
+
+```bash
+$ t :detach serve
+🚀 Starting detached task: serve
+✅ Task 'serve' started in background (PID: 12345)
+📝 Logs: .t-logs/serve-20250809-071236.log
+🛑 Stop with: t :stop serve (or PID 12345)
+
+$ t :ps
+🔧 Running detached tasks (1):
+
+  📋 Task: serve
+     🆔 PID: 12345
+     ⏰ Running for: 2m30s
+     📝 Log file: .t-logs/serve-20250809-071236.log
+     🛑 Stop with: t :stop serve
+
+$ t :logs serve -f
+📝 Logs for task 'serve':
+📡 Following logs (Press Ctrl+C to exit)...
+─────────────────────────────────────────────
+[15:04:05] Server is running...
+[15:04:10] Server is running...
+[15:04:15] Server is running...
+```
+
+### Log Management
+
+All detached tasks automatically log their output:
+
+- **Log Directory**: `.t-logs/`
+- **Log Format**: `<task-name>-<timestamp>.log`
+- **Auto-cleanup**: Process tracking files are removed when tasks stop
+
+### Perfect For
+
+- 🌐 **Development servers** (`php artisan serve`, `npm run dev`)
+- 👀 **File watchers** (`npm run watch`, `sass --watch`)
+- 🏗️ **Build processes** (`webpack --watch`)
+- 🐳 **Docker containers** (`docker-compose up`)
+- 🧪 **Test runners** (`jest --watchAll`)
+
+### Example Tasks
+
+```yaml
+tasks:
+  serve:
+    desc: "Start development server"
+    cmds:
+      - "echo Starting server..."
+      - "php artisan serve --host=0.0.0.0 --port=8000"
+
+  watch:
+    desc: "Watch files for changes"
+    cmds:
+      - "npm run watch"
+
+  docker:
+    desc: "Start Docker services"
+    cmds:
+      - "docker-compose up"
 ```
 
 ## 🚨 Troubleshooting

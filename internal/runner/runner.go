@@ -2,13 +2,17 @@ package runner
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
+	"syscall"
 	"text/template"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,6 +29,15 @@ type Config struct {
 	Version string            `yaml:"version"`
 	Vars    map[string]string `yaml:"vars"`
 	Tasks   map[string]Task   `yaml:"tasks"`
+}
+
+// DetachedProcess represents a background process
+type DetachedProcess struct {
+	PID       int       `json:"pid"`
+	TaskName  string    `json:"task_name"`
+	Command   string    `json:"command"`
+	StartedAt time.Time `json:"started_at"`
+	LogFile   string    `json:"log_file"`
 }
 
 // Runner handles task execution
@@ -193,4 +206,273 @@ func (r *Runner) expandVars(command string) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// RunTaskDetached runs a task in the background and returns immediately
+func (r *Runner) RunTaskDetached(taskName string) (*DetachedProcess, error) {
+	task, exists := r.Config.Tasks[taskName]
+	if !exists {
+		return nil, fmt.Errorf("task %s not found", taskName)
+	}
+
+	// Run dependencies first (synchronously)
+	if len(task.Deps) > 0 {
+		fmt.Printf("🔧 Running dependencies for detached task: %s\n", taskName)
+		if err := r.runDependenciesParallel(task.Deps); err != nil {
+			return nil, fmt.Errorf("dependencies failed: %w", err)
+		}
+	}
+
+	// Create logs directory if it doesn't exist
+	logsDir := ".t-logs"
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create logs directory: %w", err)
+	}
+
+	// Create log file for this task
+	timestamp := time.Now().Format("20060102-150405")
+	logFile := filepath.Join(logsDir, fmt.Sprintf("%s-%s.log", taskName, timestamp))
+
+	// Start the first command in detached mode
+	if len(task.Cmds) == 0 {
+		return nil, fmt.Errorf("task %s has no commands to run", taskName)
+	}
+
+	// For detached mode, we'll run the first command as the main process
+	// and any additional commands as setup
+	mainCmd := task.Cmds[len(task.Cmds)-1]    // Use last command as main
+	setupCmds := task.Cmds[:len(task.Cmds)-1] // Previous commands as setup
+
+	// Run setup commands first (if any)
+	if len(setupCmds) > 0 {
+		fmt.Printf("🔧 Running setup commands for detached task: %s\n", taskName)
+		for _, rawCmd := range setupCmds {
+			cmdStr, err := r.expandVars(rawCmd)
+			if err != nil {
+				return nil, err
+			}
+
+			fmt.Printf("➡️  %s\n", cmdStr)
+			var cmd *exec.Cmd
+			if runtime.GOOS == "windows" {
+				cmd = exec.Command("powershell", "-Command", cmdStr)
+			} else {
+				cmd = exec.Command("sh", "-c", cmdStr)
+			}
+
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				return nil, fmt.Errorf("setup command failed: %s", cmdStr)
+			}
+			fmt.Printf("✅ done\n")
+		}
+	}
+
+	// Expand variables in the main command
+	cmdStr, err := r.expandVars(mainCmd)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("🚀 Starting detached task: %s\n", taskName)
+	fmt.Printf("➡️  %s\n", cmdStr)
+
+	// Create the command
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-Command", cmdStr)
+	} else {
+		cmd = exec.Command("sh", "-c", cmdStr)
+	}
+
+	// Create or open log file
+	logFileHandle, err := os.Create(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	// Redirect output to log file
+	cmd.Stdout = logFileHandle
+	cmd.Stderr = logFileHandle
+
+	// Set process attributes for detachment
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+		}
+	}
+	// Note: On Unix systems, we'll let the process inherit the parent's process group
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		logFileHandle.Close()
+		return nil, fmt.Errorf("failed to start detached process: %w", err)
+	}
+
+	// Create detached process info
+	detachedProc := &DetachedProcess{
+		PID:       cmd.Process.Pid,
+		TaskName:  taskName,
+		Command:   cmdStr,
+		StartedAt: time.Now(),
+		LogFile:   logFile,
+	}
+
+	// Save process info to file for later reference
+	if err := r.saveDetachedProcess(detachedProc); err != nil {
+		fmt.Printf("⚠️  Warning: failed to save process info: %v\n", err)
+	}
+
+	fmt.Printf("✅ Task '%s' started in background (PID: %d)\n", taskName, cmd.Process.Pid)
+	fmt.Printf("📝 Logs: %s\n", logFile)
+	fmt.Printf("🛑 Stop with: t :stop %s (or PID %d)\n", taskName, cmd.Process.Pid)
+
+	// Start a goroutine to wait for the process and clean up
+	go func() {
+		defer logFileHandle.Close()
+		cmd.Wait()
+		r.removeDetachedProcess(detachedProc.PID)
+	}()
+
+	return detachedProc, nil
+}
+
+// saveDetachedProcess saves process info to a file
+func (r *Runner) saveDetachedProcess(proc *DetachedProcess) error {
+	processesDir := ".t-processes"
+	if err := os.MkdirAll(processesDir, 0755); err != nil {
+		return err
+	}
+
+	filename := filepath.Join(processesDir, fmt.Sprintf("%d.json", proc.PID))
+	data, err := json.MarshalIndent(proc, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, 0644)
+}
+
+// removeDetachedProcess removes process info file
+func (r *Runner) removeDetachedProcess(pid int) {
+	processesDir := ".t-processes"
+	filename := filepath.Join(processesDir, fmt.Sprintf("%d.json", pid))
+	os.Remove(filename) // Ignore errors
+}
+
+// ListDetachedProcesses returns all currently tracked detached processes
+func (r *Runner) ListDetachedProcesses() ([]*DetachedProcess, error) {
+	processesDir := ".t-processes"
+
+	// Check if directory exists
+	if _, err := os.Stat(processesDir); os.IsNotExist(err) {
+		return []*DetachedProcess{}, nil
+	}
+
+	files, err := filepath.Glob(filepath.Join(processesDir, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+
+	var processes []*DetachedProcess
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue // Skip invalid files
+		}
+
+		var proc DetachedProcess
+		if err := json.Unmarshal(data, &proc); err != nil {
+			continue // Skip invalid JSON
+		}
+
+		// Check if process is still running
+		if r.isProcessRunning(proc.PID) {
+			processes = append(processes, &proc)
+		} else {
+			// Clean up dead process
+			os.Remove(file)
+		}
+	}
+
+	return processes, nil
+}
+
+// isProcessRunning checks if a process with the given PID is still running
+func (r *Runner) isProcessRunning(pid int) bool {
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid))
+		output, err := cmd.Output()
+		if err != nil {
+			return false
+		}
+		return bytes.Contains(output, []byte(strconv.Itoa(pid)))
+	} else {
+		// Unix-like systems
+		cmd := exec.Command("ps", "-p", strconv.Itoa(pid))
+		err := cmd.Run()
+		return err == nil
+	}
+}
+
+// StopDetachedProcess stops a detached process by PID or task name
+func (r *Runner) StopDetachedProcess(identifier string) error {
+	processes, err := r.ListDetachedProcesses()
+	if err != nil {
+		return err
+	}
+
+	var targetPID int
+	var targetProc *DetachedProcess
+
+	// Try to parse as PID first
+	if pid, err := strconv.Atoi(identifier); err == nil {
+		targetPID = pid
+		// Find the process info
+		for _, proc := range processes {
+			if proc.PID == pid {
+				targetProc = proc
+				break
+			}
+		}
+	} else {
+		// Search by task name
+		for _, proc := range processes {
+			if proc.TaskName == identifier {
+				targetPID = proc.PID
+				targetProc = proc
+				break
+			}
+		}
+	}
+
+	if targetPID == 0 {
+		return fmt.Errorf("no detached process found with identifier: %s", identifier)
+	}
+
+	// Kill the process
+	if runtime.GOOS == "windows" {
+		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(targetPID))
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to kill process %d: %w", targetPID, err)
+		}
+	} else {
+		cmd := exec.Command("kill", strconv.Itoa(targetPID))
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to kill process %d: %w", targetPID, err)
+		}
+	}
+
+	// Clean up process info
+	r.removeDetachedProcess(targetPID)
+
+	if targetProc != nil {
+		fmt.Printf("🛑 Stopped detached task '%s' (PID: %d)\n", targetProc.TaskName, targetPID)
+	} else {
+		fmt.Printf("🛑 Stopped process (PID: %d)\n", targetPID)
+	}
+
+	return nil
 }

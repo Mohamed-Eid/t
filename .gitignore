@@ -59,3 +59,7 @@ build/
 coverage.txt
 coverage.html
 *.cover
+
+# t specific files
+.t-logs
+.t-processes
