@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"text/template"
@@ -19,9 +21,17 @@ import (
 
 // Task represents a single task configuration
 type Task struct {
-	Desc string   `yaml:"desc"`
-	Deps []string `yaml:"deps"`
-	Cmds []string `yaml:"cmds"`
+	Desc        string            `yaml:"desc"`
+	Deps        []string          `yaml:"deps"`
+	Cmds        []string          `yaml:"cmds"`
+	Interactive map[string]Prompt `yaml:"interactive"`
+}
+
+// Prompt represents an interactive prompt configuration
+type Prompt struct {
+	Message  string `yaml:"message"`
+	Required bool   `yaml:"required"`
+	Default  string `yaml:"default"`
 }
 
 // Config represents the entire tasks.yaml configuration
@@ -120,12 +130,19 @@ func (r *Runner) runTaskWithSync(taskName string) error {
 
 	fmt.Printf("🔧 Running task: %s\n", taskName)
 
+	// Prompt for interactive input if needed
+	interactiveInputs, err := r.promptForInput(taskName, task)
+	if err != nil {
+		r.mutex.Unlock()
+		return fmt.Errorf("interactive input failed: %w", err)
+	}
+
 	// Mark as running to prevent duplicate execution
 	r.Ran[taskName] = true
 	r.mutex.Unlock()
 
 	// Run task commands sequentially (commands within a task should be sequential)
-	return r.executeCommands(taskName, task.Cmds)
+	return r.executeCommandsWithInteractive(taskName, task.Cmds, interactiveInputs)
 }
 
 // runDependenciesParallel runs dependencies in parallel where possible
@@ -193,7 +210,43 @@ func (r *Runner) executeCommands(taskName string, commands []string) error {
 	return nil
 }
 
-// expandVars replaces variables in commands with their values
+// executeCommandsWithInteractive runs the commands for a task sequentially with interactive inputs
+func (r *Runner) executeCommandsWithInteractive(taskName string, commands []string, interactiveInputs map[string]string) error {
+	for _, rawCmd := range commands {
+		// First expand regular variables
+		cmdStr, err := r.expandVars(rawCmd)
+		if err != nil {
+			return err
+		}
+
+		// Then expand interactive variables
+		cmdStr, err = r.expandVarsWithInteractive(cmdStr, interactiveInputs)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("➡️  %s\n", cmdStr)
+
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("powershell", "-Command", cmdStr)
+		} else {
+			cmd = exec.Command("sh", "-c", cmdStr)
+		}
+
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("command failed: %s", cmdStr)
+		}
+
+		fmt.Printf("✅ done\n")
+	}
+
+	return nil
+} // expandVars replaces variables in commands with their values
 func (r *Runner) expandVars(command string) (string, error) {
 	tmpl, err := template.New("cmd").Parse(command)
 	if err != nil {
@@ -208,7 +261,72 @@ func (r *Runner) expandVars(command string) (string, error) {
 	return buf.String(), nil
 }
 
-// RunTaskDetached runs a task in the background and returns immediately
+// promptForInput prompts the user for interactive input
+func (r *Runner) promptForInput(taskName string, task Task) (map[string]string, error) {
+	inputs := make(map[string]string)
+
+	if len(task.Interactive) == 0 {
+		return inputs, nil
+	}
+
+	fmt.Printf("🤔 Task '%s' requires interactive input:\n\n", taskName)
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for varName, prompt := range task.Interactive {
+		// Show the prompt message
+		fmt.Printf("📝 %s", prompt.Message)
+
+		// Show default value if available
+		if prompt.Default != "" {
+			fmt.Printf(" [%s]", prompt.Default)
+		}
+
+		// Show required indicator
+		if prompt.Required {
+			fmt.Printf(" (required)")
+		}
+
+		fmt.Print(": ")
+
+		// Read user input
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("failed to read input: %w", err)
+		}
+
+		// Clean the input
+		input = strings.TrimSpace(input)
+
+		// Use default if no input provided
+		if input == "" && prompt.Default != "" {
+			input = prompt.Default
+		}
+
+		// Check if required input is provided
+		if prompt.Required && input == "" {
+			return nil, fmt.Errorf("required input '%s' not provided", varName)
+		}
+
+		inputs[varName] = input
+		fmt.Printf("✅ %s: %s\n", varName, input)
+	}
+
+	fmt.Println()
+	return inputs, nil
+}
+
+// expandVarsWithInteractive replaces variables in commands with their values including interactive inputs
+func (r *Runner) expandVarsWithInteractive(cmdStr string, interactiveInputs map[string]string) (string, error) {
+	result := cmdStr
+
+	// Expand interactive variables using $variable syntax
+	for varName, value := range interactiveInputs {
+		result = strings.ReplaceAll(result, "$"+varName, value)
+	}
+
+	return result, nil
+} // RunTaskDetached runs a task in the background and returns immediately
 func (r *Runner) RunTaskDetached(taskName string) (*DetachedProcess, error) {
 	task, exists := r.Config.Tasks[taskName]
 	if !exists {

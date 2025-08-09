@@ -16,6 +16,7 @@ A lightweight and efficient task runner for your projects, similar to Make but w
 - 🧵 **Thread-safe** - Concurrent execution without race conditions
 - 🔄 **Detached execution** - Run long-living tasks in background
 - 📝 **Process management** - Track, monitor, and control background tasks
+- 🤔 **Interactive tasks** - Prompt users for input during execution
 
 ## 🚀 Installation
 
@@ -172,6 +173,12 @@ t :s serve                    # Stop when done
 
 # Build with performance monitoring
 t :time build                 # Build with timing info
+
+# Interactive task workflows
+t echo                        # Prompt for message and echo it
+t greet                       # Interactive greeting with name
+t commit                      # Interactive git commit
+t deploy                      # Interactive deployment with confirmation
 
 # Background task management
 t :bg watch                   # Start file watcher
@@ -452,6 +459,109 @@ tasks:
     cmds:
       - "docker-compose up"
 ```
+
+## 🤔 Interactive Tasks
+
+**t** supports interactive tasks that prompt users for input during execution, perfect for commands that need dynamic values like commit messages, deployment targets, or user preferences.
+
+### Defining Interactive Tasks
+
+```yaml
+tasks:
+  echo:
+    desc: "Echo a message with user input"
+    interactive:
+      message:
+        message: "Enter the message to echo"
+        required: true
+    cmds:
+      - "echo $message"
+
+  greet:
+    desc: "Greet someone with custom name"
+    interactive:
+      name:
+        message: "Enter your name"
+        required: true
+      greeting:
+        message: "Enter greeting"
+        default: "Hello"
+        required: false
+    cmds:
+      - "echo $greeting $name!"
+
+  commit:
+    desc: "Git commit with interactive message"
+    interactive:
+      message:
+        message: "Enter commit message"
+        required: true
+      files:
+        message: "Enter files to add (or leave empty for all)"
+        default: "."
+        required: false
+    cmds:
+      - "git add $files"
+      - 'git commit -m "$message"'
+```
+
+### Interactive Configuration
+
+- **`message`**: The prompt text shown to the user
+- **`required`**: Whether the input is mandatory (true/false)
+- **`default`**: Default value used if user provides no input
+
+### Variable Syntax
+
+Use `$variable_name` in commands to reference interactive inputs:
+
+```yaml
+tasks:
+  deploy:
+    interactive:
+      env:
+        message: "Target environment (dev/prod)"
+        required: true
+    cmds:
+      - "kubectl apply -f k8s/$env/"
+      - "echo Deployed to $env environment"
+```
+
+### Example Usage
+
+```bash
+$ t echo
+🤔 Task 'echo' requires interactive input:
+
+📝 Enter the message to echo (required): Hello World!
+✅ message: Hello World!
+
+➡️  echo Hello World!
+Hello World!
+✅ done
+🎉 Task 'echo' completed successfully!
+
+$ t greet
+🤔 Task 'greet' requires interactive input:
+
+📝 Enter your name (required): John
+✅ name: John
+📝 Enter greeting [Hello]: Hi there
+✅ greeting: Hi there
+
+➡️  echo Hi there John!
+Hi there John!
+✅ done
+🎉 Task 'greet' completed successfully!
+```
+
+### Perfect For
+
+- 📝 **Git operations** - Interactive commit messages, branch names
+- 🚀 **Deployments** - Environment selection, confirmation prompts
+- 🔧 **Configuration** - Dynamic settings, user preferences
+- 📦 **Package management** - Version selection, dependency updates
+- 🧪 **Testing** - Test environment selection, test data input
 
 ## 🚨 Troubleshooting
 

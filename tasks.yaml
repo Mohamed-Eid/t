@@ -98,3 +98,54 @@ tasks:
     desc: "Simple long running task for testing detach"
     cmds:
       - 'powershell -Command "1..100 | ForEach-Object { Write-Host ''Processing item'' $_; Start-Sleep -Seconds 2 }"'
+
+  # Interactive tasks examples
+  echo:
+    desc: "Echo a message with user input"
+    interactive:
+      message:
+        message: "Enter the message to echo"
+        required: true
+    cmds:
+      - "echo $message"
+
+  greet:
+    desc: "Greet someone with custom name and greeting"
+    interactive:
+      name:
+        message: "Enter your name"
+        required: true
+      greeting:
+        message: "Enter greeting"
+        default: "Hello"
+        required: false
+    cmds:
+      - "echo $greeting $name!"
+
+  commit:
+    desc: "Git commit with interactive message"
+    interactive:
+      message:
+        message: "Enter commit message"
+        required: true
+      files:
+        message: "Enter files to add (or leave empty for all)"
+        default: "."
+        required: false
+    cmds:
+      - "git add $files"
+      - "git commit -m \"$message\""
+
+  deploy:
+    desc: "Deploy to environment with confirmation"
+    interactive:
+      environment:
+        message: "Enter target environment (dev/staging/prod)"
+        default: "dev"
+        required: true
+      confirm:
+        message: "Are you sure you want to deploy? (yes/no)"
+        required: true
+    cmds:
+      - "echo Deploying to $environment..."
+      - 'powershell -Command "if (\"$confirm\" -eq \"yes\") { Write-Host \"Deployment started to $environment\" } else { Write-Host \"Deployment cancelled\"; exit 1 }"'
